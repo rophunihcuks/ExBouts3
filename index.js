@@ -2236,7 +2236,7 @@ const commands = [
       opt
         .setName('channels')
         .setDescription(
-          'Daftar channel tujuan (mention atau ID, pisahkan dengan spasi/koma). Kosongkan untuk pakai channel ini.'
+          'Channel tujuan (mention/ID, pisah spasi/koma). Kosongkan untuk pakai channel ini.'
         )
         .setRequired(false)
     ),
