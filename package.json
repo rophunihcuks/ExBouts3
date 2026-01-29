@@ -1,11 +1,11 @@
 {
-  "name": "exhub-discord-bot",
-  "version": "1.0.0",
-  "description": "Discord bot ExHub Store (Ticket, Premium Key, Indo Hangout, Welcome, Reaction Role)",
+  "name": "exhub-discord-giveaway-bot",
+  "version": "1.1.0",
+  "description": "ExHub Discord Giveaway Bot – integrasi Admin Panel & serverv3 (exc-webs.vercel.app) untuk manage giveaway, summary web, dan sinkronisasi data.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node index.js"
+    "dev": "NODE_ENV=development node index.js"
   },
   "author": "ExHub",
   "license": "MIT",
