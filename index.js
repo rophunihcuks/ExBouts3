@@ -13,18 +13,16 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  MessageFlags,
 } = require('discord.js');
 
 const fs = require('fs');
 const path = require('path');
 
-// ============================================================================
+// ===================================================================
 // ENV
-// ============================================================================
-
+// ===================================================================
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID     = process.env.CLIENT_ID;
+const CLIENT_ID = process.env.CLIENT_ID;
 
 const RAW_OWNER_IDS =
   process.env.OWNER_IDS ||
@@ -33,15 +31,14 @@ const RAW_OWNER_IDS =
 
 const OWNER_IDS = RAW_OWNER_IDS.split(/[,\s]+/).filter(Boolean);
 
-// Base summary (web) → **selaras dengan serverv3.js**
-// Disarankan ENV: SUMMARY_BASE_URL=https://exc-webs.vercel.app/summary
+// Frontend summary base
 const SUMMARY_BASE_URL = (
   process.env.SUMMARY_BASE_URL || 'https://exc-webs.vercel.app/summary'
 ).replace(/\/+$/, '');
 
-// API backend (serverv3.js) base URL, default ke host yang sama
+// API backend (serverv3.js) base
 const API_BASE_URL = (
-  process.env.API_BASE_URL || SUMMARY_BASE_URL.replace(/\/summary$/, '')
+  process.env.API_BASE_URL || 'https://exc-webs.vercel.app'
 ).replace(/\/+$/, '');
 
 // Token auth untuk requireBotAuth di serverv3.js
@@ -53,12 +50,10 @@ const BOT_API_TOKEN =
 // File backup lokal untuk state GA
 const DATA_FILE = path.join(__dirname, 'giveaways-data.json');
 
-// ============================================================================
+// ===================================================================
 // STATE
-// ============================================================================
-//
+// ===================================================================
 // giveaways: Map<messageId, GiveawayState>
-//
 // GiveawayState:
 // {
 //   guildId, channelId, messageId,
@@ -73,13 +68,12 @@ const DATA_FILE = path.join(__dirname, 'giveaways-data.json');
 //   remoteGiveawayId?: string,
 //   remoteSummaryUrl?: string
 // }
-
 const giveaways = new Map();
-const timeouts  = new Map();
+const timeouts = new Map();
 
-// ============================================================================
+// ===================================================================
 // UTILS
-// ============================================================================
+// ===================================================================
 
 function isOwner(userId) {
   return OWNER_IDS.includes(String(userId));
@@ -114,13 +108,15 @@ function saveGiveawaysToFile() {
   }
 }
 
-// ============================================================================
+// ===================================================================
 // HTTP helper ke serverv3.js
-// ============================================================================
+// ===================================================================
 
 async function apiRequest(method, pathUrl, body) {
   if (typeof fetch !== 'function') {
-    throw new Error('Global fetch is not available. Use Node 18+ or add fetch polyfill.');
+    throw new Error(
+      'Global fetch is not available. Use Node 18+ atau tambahkan polyfill.'
+    );
   }
 
   const url = `${API_BASE_URL}${pathUrl}`;
@@ -141,7 +137,7 @@ async function apiRequest(method, pathUrl, body) {
   let data = null;
   try {
     data = await res.json();
-  } catch (e) {
+  } catch {
     data = null;
   }
 
@@ -167,9 +163,9 @@ function apiEndGiveaway(payload) {
   return apiRequest('POST', '/api/bot/giveaway/end', payload);
 }
 
-// ============================================================================
-// Duration & formatting
-// ============================================================================
+// ===================================================================
+// Helpers waktu
+// ===================================================================
 
 function parseDurationToMs(input) {
   if (!input) return null;
@@ -184,9 +180,9 @@ function parseDurationToMs(input) {
   let unit = m[2] || 'm';
 
   const minuteUnits = ['m', 'min', 'mins', 'minute', 'minutes', 'menit'];
-  const hourUnits   = ['h', 'hr', 'hrs', 'hour', 'hours', 'jam'];
-  const dayUnits    = ['d', 'day', 'days', 'hari'];
-  const monthUnits  = ['mo', 'mos', 'month', 'months', 'bulan'];
+  const hourUnits = ['h', 'hr', 'hrs', 'hour', 'hours', 'jam'];
+  const dayUnits = ['d', 'day', 'days', 'hari'];
+  const monthUnits = ['mo', 'mos', 'month', 'months', 'bulan'];
 
   if (minuteUnits.includes(unit)) {
     return value * 60 * 1000;
@@ -200,12 +196,9 @@ function parseDurationToMs(input) {
   if (monthUnits.includes(unit)) {
     return value * 30 * 24 * 60 * 60 * 1000;
   }
-
-  // angka tanpa unit → menit
   return value * 60 * 1000;
 }
 
-// format tanggal di WIB
 function formatDateTimeWIB(dateMs) {
   const date = new Date(dateMs);
   const dtf = new Intl.DateTimeFormat('id-ID', {
@@ -223,11 +216,11 @@ function formatDateTimeWIB(dateMs) {
   const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
 
   const weekday = get('weekday');
-  const day     = get('day');
-  const month   = get('month');
-  const year    = get('year');
-  const hour    = get('hour');
-  const minute  = get('minute');
+  const day = get('day');
+  const month = get('month');
+  const year = get('year');
+  const hour = get('hour');
+  const minute = get('minute');
 
   return `${weekday}, ${day} ${month} ${year}, Jam ${hour}:${minute} WIB`;
 }
@@ -254,13 +247,13 @@ function formatUserTag(user) {
   return `${user.username}#${user.discriminator}`;
 }
 
-// ============================================================================
-// Scheduler
-// ============================================================================
+// ===================================================================
+// Schedule auto end
+// ===================================================================
 
 function scheduleGiveaway(ga, client) {
   if (!ga || ga.ended) return;
-  const now   = Date.now();
+  const now = Date.now();
   const delay = ga.endAt - now;
 
   if (delay <= 0) {
@@ -276,15 +269,15 @@ function scheduleGiveaway(ga, client) {
   timeouts.set(ga.messageId, t);
 }
 
-// ============================================================================
+// ===================================================================
 // Core end logic
-// ============================================================================
+// ===================================================================
 
 async function endGiveaway(messageId, client, endedByUserId) {
   const ga = giveaways.get(messageId);
   if (!ga || ga.ended) return;
 
-  ga.ended   = true;
+  ga.ended = true;
   ga.endedAt = Date.now();
   if (endedByUserId) ga.endedBy = String(endedByUserId);
 
@@ -305,10 +298,9 @@ async function endGiveaway(messageId, client, endedByUserId) {
     return;
   }
 
-  // Remote winners via serverv3 (jika remoteGiveawayId ada)
-  let winnersFromBackend        = null;
-  let entriesCountFromBackend   = null;
-  let remoteSummaryUrl          = ga.remoteSummaryUrl;
+  let winnersFromBackend = null;
+  let entriesCountFromBackend = null;
+  let remoteSummaryUrl = ga.remoteSummaryUrl;
 
   if (ga.remoteGiveawayId) {
     try {
@@ -328,7 +320,6 @@ async function endGiveaway(messageId, client, endedByUserId) {
         if (gRemote.summaryUrl) {
           remoteSummaryUrl = gRemote.summaryUrl;
         } else if (apiRes.giveawayId) {
-          // fallback jika backend tidak set summaryUrl tapi mengembalikan id
           remoteSummaryUrl =
             `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(apiRes.giveawayId)}`;
         }
@@ -345,7 +336,7 @@ async function endGiveaway(messageId, client, endedByUserId) {
     winnersIds = winnersFromBackend;
   } else if (uniqueEntrants.length) {
     const maxWinners = Math.min(ga.winnersCount, uniqueEntrants.length);
-    const shuffled   = [...uniqueEntrants];
+    const shuffled = [...uniqueEntrants];
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
@@ -353,7 +344,7 @@ async function endGiveaway(messageId, client, endedByUserId) {
     winnersIds = shuffled.slice(0, maxWinners);
   }
 
-  const winnerInfos  = [];
+  const winnerInfos = [];
   for (const id of winnersIds) {
     const user = await client.users.fetch(id).catch(() => null);
     winnerInfos.push({
@@ -371,7 +362,7 @@ async function endGiveaway(messageId, client, endedByUserId) {
     });
   }
 
-  ga.winners        = winnerInfos;
+  ga.winners = winnerInfos;
   ga.entrantsDetail = entrantInfos;
 
   const entriesCount =
@@ -393,10 +384,10 @@ async function endGiveaway(messageId, client, endedByUserId) {
     .setTitle(ga.prize)
     .setDescription(ga.description || '-')
     .addFields(
-      { name: 'Ended',     value: endText,         inline: false },
+      { name: 'Ended', value: endText, inline: false },
       { name: 'Hosted by', value: `<@${ga.hostId}>`, inline: true },
-      { name: 'Entries',   value: String(entriesCount), inline: true },
-      { name: 'Winners',   value: winnersFieldValue, inline: true }
+      { name: 'Entries', value: String(entriesCount), inline: true },
+      { name: 'Winners', value: winnersFieldValue, inline: true }
     )
     .setTimestamp(ga.endedAt);
 
@@ -413,9 +404,6 @@ async function endGiveaway(messageId, client, endedByUserId) {
     }).catch(() => null);
   }
 
-  // Summary URL:
-  // 1. Pakai remoteSummaryUrl dari backend (https://exc-webs.vercel.app/summary/ga/<id>)
-  // 2. Fallback lama (jika backend tidak aktif)
   const summaryUrl =
     remoteSummaryUrl ||
     `${SUMMARY_BASE_URL}?giveaway=${ga.guildId}/${ga.messageId}`;
@@ -435,9 +423,9 @@ async function endGiveaway(messageId, client, endedByUserId) {
   saveGiveawaysToFile();
 }
 
-// ============================================================================
+// ===================================================================
 // DISCORD CLIENT
-// ============================================================================
+// ===================================================================
 
 const client = new Client({
   intents: [
@@ -459,9 +447,9 @@ client.once('ready', async (c) => {
   }
 });
 
-// ============================================================================
+// ===================================================================
 // REACTIONS
-// ============================================================================
+// ===================================================================
 
 client.on('messageReactionAdd', async (reaction, user) => {
   try {
@@ -469,7 +457,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.partial) await reaction.fetch();
 
     const message = reaction.message;
-    const ga      = giveaways.get(message.id);
+    const ga = giveaways.get(message.id);
     if (!ga || ga.ended) return;
 
     const emojiStr = reaction.emoji.name || reaction.emoji.toString();
@@ -477,12 +465,11 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
     let entriesCount = ga.entrants ? ga.entrants.length : 0;
 
-    // remote join (serverv3)
     if (ga.remoteGiveawayId) {
       try {
         const apiRes = await apiJoinGiveaway({
           giveawayId: ga.remoteGiveawayId,
-          discordId:  user.id,
+          discordId: user.id,
         });
 
         const fromApiCount =
@@ -510,9 +497,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
       entriesCount = ga.entrants.length;
     }
 
-    // update embed entries field
     if (message.embeds.length) {
-      const base   = EmbedBuilder.from(message.embeds[0]);
+      const base = EmbedBuilder.from(message.embeds[0]);
       const fields = base.data.fields || [];
       const newFields = fields.map((f) =>
         f.name === 'Entries'
@@ -521,7 +507,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
       );
       if (!fields.find((f) => f.name === 'Entries')) {
         newFields.push({
-          name:  'Entries',
+          name: 'Entries',
           value: String(entriesCount),
           inline: true,
         });
@@ -537,14 +523,13 @@ client.on('messageReactionAdd', async (reaction, user) => {
   }
 });
 
-// Optional: unreact tidak sync ke backend (tidak ada endpoint /leave)
 client.on('messageReactionRemove', async (reaction, user) => {
   try {
     if (user.bot) return;
     if (reaction.partial) await reaction.fetch();
 
     const message = reaction.message;
-    const ga      = giveaways.get(message.id);
+    const ga = giveaways.get(message.id);
     if (!ga || ga.ended) return;
 
     const emojiStr = reaction.emoji.name || reaction.emoji.toString();
@@ -558,7 +543,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
       const entriesCount = ga.entrants.length;
 
       if (message.embeds.length) {
-        const base   = EmbedBuilder.from(message.embeds[0]);
+        const base = EmbedBuilder.from(message.embeds[0]);
         const fields = base.data.fields || [];
         const newFields = fields.map((f) =>
           f.name === 'Entries'
@@ -577,9 +562,9 @@ client.on('messageReactionRemove', async (reaction, user) => {
   }
 });
 
-// ============================================================================
+// ===================================================================
 // SLASH COMMANDS + MODAL
-// ============================================================================
+// ===================================================================
 
 client.on('interactionCreate', async (interaction) => {
   try {
@@ -590,7 +575,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!isOwner(interaction.user.id)) {
           await interaction.reply({
             content: 'Only bot owner can use this command.',
-            flags: MessageFlags.Ephemeral,
+            ephemeral: true,
           });
           return false;
         }
@@ -649,7 +634,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!messageId) {
           await interaction.reply({
             content: 'Invalid message id or link.',
-            flags: MessageFlags.Ephemeral,
+            ephemeral: true,
           });
           return;
         }
@@ -658,7 +643,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!ga) {
           await interaction.reply({
             content: 'Giveaway not found for that message id.',
-            flags: MessageFlags.Ephemeral,
+            ephemeral: true,
           });
           return;
         }
@@ -673,7 +658,6 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    // Modal submit
     if (interaction.isModalSubmit()) {
       if (interaction.customId === 'ga_create_modal') {
         const durationText = interaction.fields
@@ -693,8 +677,8 @@ client.on('interactionCreate', async (interaction) => {
         if (!durationMs || durationMs < 60 * 1000) {
           await interaction.reply({
             content:
-              'Invalid duration. Use format like `50 minutes`, `2 days`, or `1 bulan` (minimum 1 minute).',
-            flags: MessageFlags.Ephemeral,
+              'Invalid duration. Use format like `50 minutes`, `2 days`, atau `1 bulan` (minimum 1 minute).',
+            ephemeral: true,
           });
           return;
         }
@@ -703,7 +687,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!Number.isFinite(winnersCount) || winnersCount <= 0) {
           await interaction.reply({
             content: 'Number of winners must be a positive number.',
-            flags: MessageFlags.Ephemeral,
+            ephemeral: true,
           });
           return;
         }
@@ -711,25 +695,29 @@ client.on('interactionCreate', async (interaction) => {
         if (!interaction.channel || !interaction.channel.isTextBased()) {
           await interaction.reply({
             content: 'This command can only be used in a text channel.',
-            flags: MessageFlags.Ephemeral,
+            ephemeral: true,
           });
           return;
         }
 
-        const now      = Date.now();
-        const endAt    = now + durationMs;
+        const now = Date.now();
+        const endAt = now + durationMs;
         const relative = formatRelative(durationMs);
-        const endText  = `${relative} (${formatDateTimeWIB(endAt)})`;
+        const endText = `${relative} (${formatDateTimeWIB(endAt)})`;
 
         const embed = new EmbedBuilder()
           .setColor(0xfee75c)
           .setTitle(prizeText)
           .setDescription(descText)
           .addFields(
-            { name: 'Ends',      value: endText,              inline: false },
-            { name: 'Hosted by', value: `<@${interaction.user.id}>`, inline: true },
-            { name: 'Entries',   value: '0',                  inline: true },
-            { name: 'Winners',   value: String(winnersCount), inline: true }
+            { name: 'Ends', value: endText, inline: false },
+            {
+              name: 'Hosted by',
+              value: `<@${interaction.user.id}>`,
+              inline: true,
+            },
+            { name: 'Entries', value: '0', inline: true },
+            { name: 'Winners', value: String(winnersCount), inline: true }
           )
           .setTimestamp(now);
 
@@ -739,20 +727,20 @@ client.on('interactionCreate', async (interaction) => {
         const hostTag = formatUserTag(interaction.user);
 
         const ga = {
-          guildId:         interaction.guildId,
-          channelId:       interaction.channel.id,
-          messageId:       msg.id,
-          prize:           prizeText,
-          description:     descText,
+          guildId: interaction.guildId,
+          channelId: interaction.channel.id,
+          messageId: msg.id,
+          prize: prizeText,
+          description: descText,
           winnersCount,
-          hostId:          interaction.user.id,
+          hostId: interaction.user.id,
           hostTag,
-          createdAt:       now,
+          createdAt: now,
           endAt,
-          ended:           false,
-          entrants:        [],
-          winners:         [],
-          entrantsDetail:  [],
+          ended: false,
+          entrants: [],
+          winners: [],
+          entrantsDetail: [],
           remoteGiveawayId: null,
           remoteSummaryUrl: null,
         };
@@ -761,19 +749,19 @@ client.on('interactionCreate', async (interaction) => {
         saveGiveawaysToFile();
         scheduleGiveaway(ga, client);
 
-        // Registrasi ke backend (serverv3.js)
+        // Registrasi ke backend (serverv3.js) – non-blocking
         (async () => {
           try {
             const apiRes = await apiCreateGiveaway({
-              guildId:            interaction.guildId,
-              channelId:          interaction.channel.id,
-              messageId:          msg.id,
+              guildId: interaction.guildId,
+              channelId: interaction.channel.id,
+              messageId: msg.id,
               createdByDiscordId: interaction.user.id,
               durationMs,
               winnersCount,
-              prize:              prizeText,
-              description:        descText,
-              plan:               null, // tidak generate paid key otomatis
+              prize: prizeText,
+              description: descText,
+              plan: null,
             });
 
             const gRemote = apiRes.giveaway;
@@ -784,7 +772,9 @@ client.on('interactionCreate', async (interaction) => {
               ga.remoteSummaryUrl = apiRes.summaryUrl || gRemote.summaryUrl;
             } else if (gRemote && gRemote.id) {
               ga.remoteSummaryUrl =
-                `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(gRemote.id)}`;
+                `${SUMMARY_BASE_URL.replace(/\/+$/, '')}/ga/${encodeURIComponent(
+                  gRemote.id
+                )}`;
             }
 
             giveaways.set(msg.id, ga);
@@ -800,7 +790,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: `Giveaway created in ${interaction.channel} with prize **${prizeText}**.`,
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
       }
       return;
@@ -808,19 +798,19 @@ client.on('interactionCreate', async (interaction) => {
   } catch (err) {
     console.error('interactionCreate error:', err);
     try {
-      if (!interaction.deferred && !interaction.replied) {
+      if (interaction.isRepliable() && !interaction.deferred && !interaction.replied) {
         await interaction.reply({
           content: 'Internal error while handling this interaction.',
-          flags: MessageFlags.Ephemeral,
+          ephemeral: true,
         });
       }
-    } catch (e) {}
+    } catch {}
   }
 });
 
-// ============================================================================
+// ===================================================================
 // SLASH COMMAND REGISTRATION
-// ============================================================================
+// ===================================================================
 
 const commands = [
   new SlashCommandBuilder()
