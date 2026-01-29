@@ -465,11 +465,16 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
     let entriesCount = ga.entrants ? ga.entrants.length : 0;
 
+    // remote join (serverv3) + kirim snapshot profil user
     if (ga.remoteGiveawayId) {
       try {
         const apiRes = await apiJoinGiveaway({
           giveawayId: ga.remoteGiveawayId,
           discordId: user.id,
+          username: user.username,
+          globalName: user.globalName,
+          discriminator: user.discriminator,
+          avatar: user.avatar,
         });
 
         const fromApiCount =
