@@ -17,6 +17,7 @@ const {
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 // ===================================================================
 // ENV
@@ -248,11 +249,116 @@ function formatUserTag(user) {
 }
 
 // ===================================================================
+// Helpers runtime VPS / bot
+// ===================================================================
+
+function formatSecondsToHMS(totalSec) {
+  const sec = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${h}h ${m}m ${s}s`;
+}
+
+function toMB(bytes) {
+  return (bytes / 1024 / 1024).toFixed(2);
+}
+
+function toGB(bytes) {
+  return (bytes / 1024 / 1024 / 1024).toFixed(2);
+}
+
+function buildRuntimeMessage(client) {
+  const uptimeSec = Math.floor(process.uptime());
+  const nowSec = Math.floor(Date.now() / 1000);
+  const startTimestampSec = nowSec - uptimeSec;
+
+  const mem = process.memoryUsage();
+  const totalMemBytes = os.totalmem();
+  const freeMemBytes = os.freemem();
+
+  const cpus = os.cpus() || [];
+  const coreCount = cpus.length || 0;
+  let cpuModel = 'Unknown';
+  let cpuSpeed = '?';
+
+  if (coreCount > 0) {
+    cpuModel = cpus[0].model || 'Unknown';
+    cpuSpeed = cpus[0].speed || '?';
+  }
+
+  const osType = os.type();
+  const osRelease = os.release();
+  const osPlatform = os.platform();
+  const osArch = os.arch();
+
+  const guildCount = client.guilds.cache.size;
+
+  const cpuLines = coreCount
+    ? `• CPU           : \`${cpuModel}\`\n` +
+      `• CPU Cores     : \`${coreCount} cores @ ${cpuSpeed} MHz\`\n`
+    : '• CPU           : `Unknown`\n';
+
+  const msg =
+    `⏱️ **Runtime Bot**\n` +
+    `• Uptime        : \`${formatSecondsToHMS(
+      uptimeSec
+    )}\` (sejak <t:${startTimestampSec}:R>)\n` +
+    `• Start Time    : <t:${startTimestampSec}:F>\n` +
+    `• Guilds        : \`${guildCount}\`\n` +
+    `• Node.js       : \`${process.version}\`\n` +
+    `• Memory (RSS)  : \`${toMB(mem.rss)} MB\`\n` +
+    `• Heap Used     : \`${toMB(mem.heapUsed)} MB\`` +
+    `\n\n🖥️ **Spesifikasi Core VPS**\n` +
+    `• OS            : \`${osType} ${osRelease} (${osPlatform}/${osArch})\`\n` +
+    cpuLines +
+    `• RAM (Total)   : \`${toGB(totalMemBytes)} GB\`\n` +
+    `• RAM (Free)    : \`${toGB(freeMemBytes)} GB\``;
+
+  return msg;
+}
+
+// Helper universal untuk summary URL
+function buildSummaryUrl(gaId) {
+  if (!gaId) return null;
+  return `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(gaId)}`;
+}
+
+// Helper universal update field "Entries" pada embed
+async function updateEntriesField(message, entriesCount) {
+  if (!message || !message.embeds || !message.embeds.length) return;
+
+  const base = EmbedBuilder.from(message.embeds[0]);
+  const fields = base.data.fields || [];
+
+  let hasEntries = false;
+  const newFields = fields.map((f) => {
+    if (f.name === 'Entries') {
+      hasEntries = true;
+      return { ...f, value: String(entriesCount) };
+    }
+    return f;
+  });
+
+  if (!hasEntries) {
+    newFields.push({
+      name: 'Entries',
+      value: String(entriesCount),
+      inline: true,
+    });
+  }
+
+  const newEmbed = new EmbedBuilder(base).setFields(newFields);
+  await message.edit({ embeds: [newEmbed] }).catch(() => null);
+}
+
+// ===================================================================
 // Schedule auto end
 // ===================================================================
 
 function scheduleGiveaway(ga, client) {
   if (!ga || ga.ended) return;
+
   const now = Date.now();
   const delay = ga.endAt - now;
 
@@ -266,6 +372,7 @@ function scheduleGiveaway(ga, client) {
   const t = setTimeout(() => {
     endGiveaway(ga.messageId, client, null).catch(console.error);
   }, delay);
+
   timeouts.set(ga.messageId, t);
 }
 
@@ -308,7 +415,6 @@ async function endGiveaway(messageId, client, endedByUserId) {
         giveawayId: ga.remoteGiveawayId,
       });
 
-      // apiRes.winners sekarang objek, tapi untuk Discord cukup id-nya saja
       if (Array.isArray(apiRes.winners)) {
         winnersFromBackend = apiRes.winners.map((w) => String(w.discordId));
       }
@@ -318,11 +424,11 @@ async function endGiveaway(messageId, client, endedByUserId) {
         if (Array.isArray(gRemote.participants)) {
           entriesCountFromBackend = gRemote.participants.length;
         }
+
         if (gRemote.summaryUrl) {
           remoteSummaryUrl = gRemote.summaryUrl;
         } else if (apiRes.giveawayId) {
-          remoteSummaryUrl =
-            `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(apiRes.giveawayId)}`;
+          remoteSummaryUrl = buildSummaryUrl(apiRes.giveawayId);
         }
       }
     } catch (err) {
@@ -338,10 +444,12 @@ async function endGiveaway(messageId, client, endedByUserId) {
   } else if (uniqueEntrants.length) {
     const maxWinners = Math.min(ga.winnersCount, uniqueEntrants.length);
     const shuffled = [...uniqueEntrants];
+
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
+
     winnersIds = shuffled.slice(0, maxWinners);
   }
 
@@ -407,9 +515,7 @@ async function endGiveaway(messageId, client, endedByUserId) {
 
   const summaryUrl =
     remoteSummaryUrl ||
-    (ga.remoteGiveawayId
-      ? `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(ga.remoteGiveawayId)}`
-      : null);
+    (ga.remoteGiveawayId ? buildSummaryUrl(ga.remoteGiveawayId) : null);
 
   if (summaryUrl) {
     const btn = new ButtonBuilder()
@@ -470,10 +576,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
     if (ga.remoteGiveawayId) {
       try {
-        const avatarUrl =
-          typeof user.displayAvatarURL === 'function'
-            ? user.displayAvatarURL({ size: 256, extension: 'png' })
-            : null;
+        // Kirim avatar hash ke backend, bukan URL
+        const avatarHash = user.avatar || null;
 
         const apiRes = await apiJoinGiveaway({
           giveawayId: ga.remoteGiveawayId,
@@ -482,7 +586,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
           globalName: user.globalName || null,
           displayName: user.globalName || null,
           discriminator: user.discriminator === '0' ? null : user.discriminator,
-          avatar: avatarUrl,
+          avatar: avatarHash,
         });
 
         const fromApiCount =
@@ -510,24 +614,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
       entriesCount = ga.entrants.length;
     }
 
-    if (message.embeds.length) {
-      const base = EmbedBuilder.from(message.embeds[0]);
-      const fields = base.data.fields || [];
-      const newFields = fields.map((f) =>
-        f.name === 'Entries'
-          ? { ...f, value: String(entriesCount) }
-          : f
-      );
-      if (!fields.find((f) => f.name === 'Entries')) {
-        newFields.push({
-          name: 'Entries',
-          value: String(entriesCount),
-          inline: true,
-        });
-      }
-      const newEmbed = new EmbedBuilder(base).setFields(newFields);
-      await message.edit({ embeds: [newEmbed] }).catch(() => null);
-    }
+    await updateEntriesField(message, entriesCount);
 
     giveaways.set(message.id, ga);
     saveGiveawaysToFile();
@@ -554,18 +641,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
 
     if (ga.entrants.length !== before) {
       const entriesCount = ga.entrants.length;
-
-      if (message.embeds.length) {
-        const base = EmbedBuilder.from(message.embeds[0]);
-        const fields = base.data.fields || [];
-        const newFields = fields.map((f) =>
-          f.name === 'Entries'
-            ? { ...f, value: String(entriesCount) }
-            : f
-        );
-        const newEmbed = new EmbedBuilder(base).setFields(newFields);
-        await message.edit({ embeds: [newEmbed] }).catch(() => null);
-      }
+      await updateEntriesField(message, entriesCount);
 
       giveaways.set(message.id, ga);
       saveGiveawaysToFile();
@@ -579,24 +655,24 @@ client.on('messageReactionRemove', async (reaction, user) => {
 // SLASH COMMANDS + MODAL
 // ===================================================================
 
+async function ensureOwner(interaction) {
+  if (!isOwner(interaction.user.id)) {
+    await interaction.reply({
+      content: 'Only bot owner can use this command.',
+      ephemeral: true,
+    });
+    return false;
+  }
+  return true;
+}
+
 client.on('interactionCreate', async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       const { commandName } = interaction;
 
-      const ensureOwner = async () => {
-        if (!isOwner(interaction.user.id)) {
-          await interaction.reply({
-            content: 'Only bot owner can use this command.',
-            ephemeral: true,
-          });
-          return false;
-        }
-        return true;
-      };
-
       if (commandName === 'gacreate') {
-        if (!(await ensureOwner())) return;
+        if (!(await ensureOwner(interaction))) return;
 
         const modal = new ModalBuilder()
           .setCustomId('ga_create_modal')
@@ -638,7 +714,7 @@ client.on('interactionCreate', async (interaction) => {
         modal.addComponents(row1, row2, row3, row4);
         await interaction.showModal(modal);
       } else if (commandName === 'gaend') {
-        if (!(await ensureOwner())) return;
+        if (!(await ensureOwner(interaction))) return;
 
         const idStr = interaction.options.getString('message_id', true).trim();
         const messageIdMatch = idStr.match(/(\d{8,})$/);
@@ -665,6 +741,15 @@ client.on('interactionCreate', async (interaction) => {
         await endGiveaway(messageId, client, interaction.user.id);
         await interaction.editReply({
           content: `Giveaway **${ga.prize}** has been ended.`,
+        });
+      } else if (commandName === 'runtime') {
+        // Runtime hanya untuk OWNER
+        if (!(await ensureOwner(interaction))) return;
+
+        const msg = buildRuntimeMessage(client);
+        await interaction.reply({
+          content: msg,
+          ephemeral: true,
         });
       }
 
@@ -781,11 +866,11 @@ client.on('interactionCreate', async (interaction) => {
             if (gRemote && gRemote.id) {
               ga.remoteGiveawayId = gRemote.id;
             }
+
             if (apiRes.summaryUrl || (gRemote && gRemote.summaryUrl)) {
               ga.remoteSummaryUrl = apiRes.summaryUrl || gRemote.summaryUrl;
             } else if (gRemote && gRemote.id) {
-              ga.remoteSummaryUrl =
-                `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(gRemote.id)}`;
+              ga.remoteSummaryUrl = buildSummaryUrl(gRemote.id);
             }
 
             giveaways.set(msg.id, ga);
@@ -836,6 +921,9 @@ const commands = [
         .setDescription('Giveaway message id or link.')
         .setRequired(true)
     ),
+  new SlashCommandBuilder()
+    .setName('runtime')
+    .setDescription('Show bot runtime and VPS spec.'),
 ].map((c) => c.setDMPermission(false).toJSON());
 
 const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
