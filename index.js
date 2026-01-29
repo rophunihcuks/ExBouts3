@@ -31,12 +31,12 @@ const RAW_OWNER_IDS =
 
 const OWNER_IDS = RAW_OWNER_IDS.split(/[,\s]+/).filter(Boolean);
 
-// Frontend summary base
+// Frontend summary base: ex: https://exc-webs.vercel.app/summary
 const SUMMARY_BASE_URL = (
   process.env.SUMMARY_BASE_URL || 'https://exc-webs.vercel.app/summary'
 ).replace(/\/+$/, '');
 
-// API backend (serverv3.js) base
+// API backend (serverv3.js) base: ex: https://exc-webs.vercel.app
 const API_BASE_URL = (
   process.env.API_BASE_URL || 'https://exc-webs.vercel.app'
 ).replace(/\/+$/, '');
@@ -308,6 +308,7 @@ async function endGiveaway(messageId, client, endedByUserId) {
         giveawayId: ga.remoteGiveawayId,
       });
 
+      // apiRes.winners sekarang objek, tapi untuk Discord cukup id-nya saja
       if (Array.isArray(apiRes.winners)) {
         winnersFromBackend = apiRes.winners.map((w) => String(w.discordId));
       }
@@ -406,7 +407,9 @@ async function endGiveaway(messageId, client, endedByUserId) {
 
   const summaryUrl =
     remoteSummaryUrl ||
-    `${SUMMARY_BASE_URL}?giveaway=${ga.guildId}/${ga.messageId}`;
+    (ga.remoteGiveawayId
+      ? `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(ga.remoteGiveawayId)}`
+      : null);
 
   if (summaryUrl) {
     const btn = new ButtonBuilder()
@@ -418,7 +421,7 @@ async function endGiveaway(messageId, client, endedByUserId) {
     await channel.send({ components: [row] }).catch(() => null);
   }
 
-  ga.remoteSummaryUrl = remoteSummaryUrl;
+  ga.remoteSummaryUrl = remoteSummaryUrl || summaryUrl || null;
   giveaways.set(messageId, ga);
   saveGiveawaysToFile();
 }
@@ -465,16 +468,21 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
     let entriesCount = ga.entrants ? ga.entrants.length : 0;
 
-    // remote join (serverv3) + kirim snapshot profil user
     if (ga.remoteGiveawayId) {
       try {
+        const avatarUrl =
+          typeof user.displayAvatarURL === 'function'
+            ? user.displayAvatarURL({ size: 256, extension: 'png' })
+            : null;
+
         const apiRes = await apiJoinGiveaway({
           giveawayId: ga.remoteGiveawayId,
           discordId: user.id,
           username: user.username,
-          globalName: user.globalName,
-          discriminator: user.discriminator,
-          avatar: user.avatar,
+          globalName: user.globalName || null,
+          displayName: user.globalName || null,
+          discriminator: user.discriminator === '0' ? null : user.discriminator,
+          avatar: avatarUrl,
         });
 
         const fromApiCount =
@@ -777,9 +785,7 @@ client.on('interactionCreate', async (interaction) => {
               ga.remoteSummaryUrl = apiRes.summaryUrl || gRemote.summaryUrl;
             } else if (gRemote && gRemote.id) {
               ga.remoteSummaryUrl =
-                `${SUMMARY_BASE_URL.replace(/\/+$/, '')}/ga/${encodeURIComponent(
-                  gRemote.id
-                )}`;
+                `${SUMMARY_BASE_URL}/ga/${encodeURIComponent(gRemote.id)}`;
             }
 
             giveaways.set(msg.id, ga);
